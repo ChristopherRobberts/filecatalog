@@ -1,5 +1,6 @@
 package server.startup;
 
+import server.TCPSocketCommunication.ServerFileContentHandler;
 import server.controller.Controller;
 
 import java.net.MalformedURLException;
@@ -25,5 +26,8 @@ public class ServerMain {
         } catch (RemoteException e) {
             e.printStackTrace();
         }
+
+        ServerFileContentHandler fileContentHandler = new ServerFileContentHandler();
+        fileContentHandler.start();
     }
 }

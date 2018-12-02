@@ -1,6 +1,7 @@
 package client.view;
 
-import client.FileExtractor;
+import client.net.ServerConnection;
+import client.util.SystemFileHandler;
 import common.FileDTO;
 import common.ServerInterface;
 import common.UserAccountDTO;
@@ -12,8 +13,6 @@ import java.rmi.RemoteException;
 import java.util.*;
 
 public class CommandLineInterpreter implements Runnable {
-    private static final String ALREADY_LOGGED_IN_ERROR_MSG = "you are already logged in to an account";
-    private static final String NOT_LOGGED_IN_ERROR_MSG = "you must be logged in to perform this action";
     private static final String WRONG_INPUT_MESSAGE = "you must answer with [yes] or [no]";
     private CommandLineOutput commandLineOutput = new CommandLineOutput();
     private Scanner scanner = new Scanner(System.in);
@@ -23,6 +22,7 @@ public class CommandLineInterpreter implements Runnable {
     private ConnectedClient connectedClient;
     private boolean isLoggedIn = false;
     private UserAccountDTO userAccount;
+    private ServerConnection serverSocketConnection;
 
     public void start(ConnectedClient connectedClient) {
         this.connectedClient = connectedClient;
@@ -30,6 +30,8 @@ public class CommandLineInterpreter implements Runnable {
     }
 
     public void run() {
+        serverSocketConnection = new ServerConnection();
+
         informClient();
 
         while (this.input) {
@@ -45,13 +47,16 @@ public class CommandLineInterpreter implements Runnable {
                 switch (parser.command) {
                     case CONNECT:
                         serverAccess();
+                        serverSocketConnection.connect();
                         commandLineOutput.println("connected");
                         this.connected = true;
                         break;
                     case REGISTER:
+                        if (isLoggedIn) continue;
                         register();
                         break;
                     case LOGIN:
+                        if (isLoggedIn) continue;
                         login();
                         break;
                     case LOGOUT:
@@ -103,14 +108,16 @@ public class CommandLineInterpreter implements Runnable {
     }
 
     private void informClient() {
-        this.commandLineOutput.println("Following commands are legal\n" +
-                "1.connect\n" +
-                "2.register\n" +
-                "3.login\n" +
-                "4.upload *filename* *file size* *read permission [yes or no]* *write permission [yes or no]*\n" +
-                "5.download *filename*\n" +
-                "6.catalog\n" +
-                "7.logout"
+        this.commandLineOutput.println(
+                "Following commands are legal\n" +
+                        "1.connect\n" +
+                        "2.register\n" +
+                        "3.login\n" +
+                        "4.upload\n" +
+                        "5.download\n" +
+                        "6.catalog\n" +
+                        "7.logout\n" +
+                        "after typing a command you will be asked to fill in steps"
         );
     }
 
@@ -157,7 +164,9 @@ public class CommandLineInterpreter implements Runnable {
             return;
         }
 
-        FileExtractor extractor = new FileExtractor(path);
+        SystemFileHandler extractor = new SystemFileHandler(path);
+        serverSocketConnection.uploadFileContent(extractor.getFileName(), extractor.getContent());
+
         this.server.uploadFile(this.userAccount,
                 extractor.getFileName(),
                 this.userAccount.getUsername(),
@@ -184,8 +193,16 @@ public class CommandLineInterpreter implements Runnable {
     private void downloadFile() throws Exception {
         this.commandLineOutput.println("Specify the name of the file you want to download, example: test.txt");
         String fileName = this.scanner.nextLine();
-        FileDTO file = this.server.downloadFile(this.userAccount, fileName);
-        commandLineOutput.println(file.getFileName());
+
+
+        this.commandLineOutput.println("Specify path for the downloaded file: ");
+        String path = this.scanner.nextLine();
+
+        this.serverSocketConnection.setPath(path);
+        this.serverSocketConnection.downloadFileContent(fileName);
+
+        this.commandLineOutput.println("downloading..");
+        this.server.downloadFile(this.userAccount, fileName);
     }
 
     private void deleteFile() throws Exception {

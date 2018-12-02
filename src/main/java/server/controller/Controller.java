@@ -16,8 +16,7 @@ import java.util.List;
 
 
 public class Controller extends UnicastRemoteObject implements ServerInterface {
-    private final static String INTERNAL_ERROR_MSG = "Internal error, try again";
-    private final static String NOT_LOGGED_IN_MSG = "you must be logged in to perform this action";
+    private final static String INTERNAL_ERROR_MSG = "Internal error";
     private FileCatalogDOA dbHandler = new FileCatalogDOA();
     private HashMap<String, ClientInterface> currentlyLoggedInUsers = new HashMap<>();
 
@@ -31,9 +30,13 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
             throws ActionDeniedException {
         try {
             dbHandler.registerUser(username, password);
-            ci.receiveMessage("user " + username + " registered");
+            ci.successfulRegister();
         } catch (MySQLIntegrityConstraintViolationException e) {
-            throw new ActionDeniedException("Username already taken");
+            try {
+                ci.invalidUsername();
+            } catch (RemoteException e1) {
+                e1.printStackTrace();
+            }
         } catch (Exception e) {
             throw new ActionDeniedException(INTERNAL_ERROR_MSG);
         }
@@ -44,12 +47,12 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
             throws ActionDeniedException {
         try {
             if (isLoggedIn(username)) {
-                throw new ActionDeniedException("already logged in on this device or another");
+                throw new ActionDeniedException("already logged in");
             }
 
             if (dbHandler.userIsValidated(username, password)) {
                 currentlyLoggedInUsers.put(username, ci);
-                ci.receiveMessage("logged in");
+                ci.loggedIn(username);
                 return new UserAccount(username, password);
             }
 
@@ -65,8 +68,9 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
         try {
             String username = ua.getUsername();
             ClientInterface ci = currentlyLoggedInUsers.get(username);
+
             currentlyLoggedInUsers.remove(username);
-            ci.receiveMessage("successfully logged out, bye bye " + username);
+            ci.loggedOut(username);
 
         } catch (RemoteException e) {
             e.printStackTrace();
@@ -80,12 +84,9 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
                                         String readPermission, String writePermission) throws ActionDeniedException {
         try {
             String username = ua.getUsername();
-            if (!isLoggedIn(username)) {
-                throw new ActionDeniedException(NOT_LOGGED_IN_MSG);
-            }
 
             dbHandler.uploadFile(fileName, owner, size, readPermission, writePermission);
-            currentlyLoggedInUsers.get(username).receiveMessage("file uploaded");
+            currentlyLoggedInUsers.get(username).uploaded();
 
         } catch (SQLException | RemoteException e) {
             throw new ActionDeniedException(INTERNAL_ERROR_MSG);
@@ -105,7 +106,9 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
     public synchronized FileDTO downloadFile(UserAccountDTO ua, String fileName) throws ActionDeniedException {
         try {
             String username = ua.getUsername();
+            String action = "download";
             File file = dbHandler.getFile(fileName);
+            String fileOwner = file.getFileOwner();
 
             if (file == null) {
                 throw new ActionDeniedException("invalid file name");
@@ -116,16 +119,14 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
                     throw new ActionDeniedException("No permission to obtain this document");
                 }
 
-                String fileOwner = file.getFileOwner();
-
                 if (isLoggedIn(fileOwner)) {
-                    currentlyLoggedInUsers.get(fileOwner).receiveMessage(username +
-                            " has downloaded your file " + file.getFileName());
+                    currentlyLoggedInUsers.get(fileOwner).notifyFileOwner(username, action, fileName);
                 }
 
                 return file;
             }
 
+            currentlyLoggedInUsers.get(fileOwner).notifyModificationComplete(action);
             return file;
         } catch (SQLException | RemoteException e) {
             throw new ActionDeniedException(INTERNAL_ERROR_MSG);
@@ -182,9 +183,9 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
         if (!file.getFileOwner().equals(username) && isLoggedIn(file.getFileOwner())) {
             currentlyLoggedInUsers
                     .get(file.getFileOwner())
-                    .receiveMessage(username + " has performed a " + action + " on your file " + file.getFileName());
+                    .notifyFileOwner(username, action, file.getFileName());
         }
-        currentlyLoggedInUsers.get(username).receiveMessage(action + " performed");
+        currentlyLoggedInUsers.get(username).notifyModificationComplete(action);
     }
 
     private boolean isLoggedIn(String username) throws RemoteException {
