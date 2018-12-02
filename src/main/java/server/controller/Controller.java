@@ -134,7 +134,7 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
     }
 
     @Override
-    public void deleteFile(UserAccountDTO ua, String fileName) throws ActionDeniedException {
+    public synchronized void deleteFile(UserAccountDTO ua, String fileName) throws ActionDeniedException {
         try {
             String username = ua.getUsername();
             String action = "delete";
@@ -151,7 +151,8 @@ public class Controller extends UnicastRemoteObject implements ServerInterface {
     }
 
     @Override
-    public void updateFileName(UserAccountDTO ua, String fileName, String newName) throws ActionDeniedException {
+    public synchronized void updateFileName(UserAccountDTO ua, String fileName, String newName)
+            throws ActionDeniedException {
         try {
             String username = ua.getUsername();
             String action = "name-update";
